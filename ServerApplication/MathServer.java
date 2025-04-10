@@ -27,11 +27,26 @@ public class MathServer {
                 // Assign unique ID to maintain order
                 long requestId = requestCounter++;
 
-                // Handle connected clients
-                requestQueue.add(new ClientRequest(requestId, connectionSocket));
-                
-                // Process the request concurrently
-                workerPool.execute(() -> processRequest());
+                // Initial handshake
+                BufferedReader in = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
+                DataOutputStream out = new DataOutputStream(connectionSocket.getOutputStream());
+
+                String nameLine = in.readLine();
+                if (nameLine != null && nameLine.startsWith("NAME ")) {
+                    String clientName = nameLine.substring(5).trim();
+                    System.out.println("Client connected: " + clientName);
+                    out.writeBytes("ACK\n");
+
+                    // Handle connected clients
+                    requestQueue.add(new ClientRequest(requestId, connectionSocket, clientName));
+                    
+                    // Process the request concurrently
+                    workerPool.execute(() -> processRequest());
+
+                } else {
+                    out.writeBytes("INVALID INIT\n");
+                    connectionSocket.close();
+                }
             }
 
         } catch (IOException e) {
@@ -43,36 +58,59 @@ public class MathServer {
     
     // Processes client requests concurrently by fetching from the queue and computing results.
     private static void processRequest() {
+        ClientRequest clientRequest = null;
+
         try {
-            ClientRequest clientRequest = requestQueue.take();
+            clientRequest = requestQueue.take();
             Socket socket = clientRequest.getSocket();
             long requestId = clientRequest.getRequestId();
+            String clientName = clientRequest.getClientName();
 
             try (BufferedReader inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                  DataOutputStream outFromServer = new DataOutputStream(socket.getOutputStream())) {
 
                 String mathExpression;
                 while ((mathExpression = inFromClient.readLine()) != null) {
+                    if (mathExpression.equalsIgnoreCase("CLOSE")) {
+                        System.out.println("Client " + clientName + " disconnected.");
+                        break;
+                    }
+
+                    System.out.println("Received from " + clientName + ": " + mathExpression);
                     String result = processCalculation(mathExpression);
                     responseMap.put(requestId, result);  // Store result in FCFS order
+                    outToClient.writeBytes(result + "\n");  // Echo result
                 }
-            } finally {
-                socket.close();
+
+            } catch (IOException e) {
+                System.err.println("IO error with client " + clientName);
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+
+        } catch (InterruptedException e) {
+            System.err.println("Worker interrupted.");
+        } finally {
+            if (clientRequest != null) {
+                try {
+                    clientRequest.getSocket().close();
+                } catch (IOException e) {
+                    System.err.println("Error closing socket");
+                }
+            }
         }
-    }
+    } 
     
     
     // Stores request details (Socket + Request ID for ordering)
     private static class ClientRequest {
         private final long requestId;
         private final Socket socket;
+        private final String name;
 
-        public ClientRequest(long requestId, Socket socket) {
+        public ClientRequest(long requestId, Socket socket, String name) {
             this.requestId = requestId;
             this.socket = socket;
+            this.name = name;
         }
 
         public long getRequestId() {
@@ -81,6 +119,10 @@ public class MathServer {
 
         public Socket getSocket() {
             return socket;
+        }
+
+        public String getClientName() {
+            return name;
         }
     }
     
