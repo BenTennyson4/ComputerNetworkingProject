@@ -23,6 +23,12 @@ public class MathServer {
             while (true) {
                 // Wait for a client to connect
                 Socket connectionSocket = welcomeSocket.accept();
+
+                // Log client connection info (IP address, client port number, connection time)
+                InetAddress clientAddress = connectionSocket.getInetAddress();
+                int clientPort = connectionSocket.getPort();
+                Date connectionTime = new Date();
+                System.out.println("Client connected from " + clientAddress + ":" + clientPort + " at " + connectionTime);
                 
                 // Assign unique ID to maintain order
                 long requestId = requestCounter++;
@@ -41,7 +47,7 @@ public class MathServer {
                     requestQueue.add(new ClientRequest(requestId, connectionSocket, clientName));
                     
                     // Process the request concurrently
-                    workerPool.execute(() -> processRequest());
+                    workerPool.execute(() -> processRequest(connectionSocket, connectionTime));
 
                 } else {
                     out.writeBytes("INVALID INIT\n");
@@ -57,17 +63,19 @@ public class MathServer {
     
     
     // Processes client requests concurrently by fetching from the queue and computing results.
-    private static void processRequest() {
+    private static void processRequest(Socket socket, Date connectionTime) {
         ClientRequest clientRequest = null;
 
         try {
             clientRequest = requestQueue.take();
-            Socket socket = clientRequest.getSocket();
+            // Socket socket = clientRequest.getSocket();
             long requestId = clientRequest.getRequestId();
             String clientName = clientRequest.getClientName();
+            
 
             try (BufferedReader inFromClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                  DataOutputStream outFromServer = new DataOutputStream(socket.getOutputStream())) {
+            	
 
                 String mathExpression;
                 while ((mathExpression = inFromClient.readLine()) != null) {
@@ -79,7 +87,7 @@ public class MathServer {
                     System.out.println("Received from " + clientName + ": " + mathExpression);
                     String result = processCalculation(mathExpression);
                     responseMap.put(requestId, result);  // Store result in FCFS order
-                    outToClient.writeBytes(result + "\n");  // Echo result
+                    outFromServer.writeBytes(result + "\n");  // Echo result
                 }
 
             } catch (IOException e) {
@@ -90,6 +98,11 @@ public class MathServer {
         } catch (InterruptedException e) {
             System.err.println("Worker interrupted.");
         } finally {
+        	Date disconnectTime = new Date();
+            long sessionDurationMillis = disconnectTime.getTime() - connectionTime.getTime();
+            System.out.println("Client " + socket.getInetAddress() + " processing done at " + disconnectTime +
+                    ". Session processing duration: " + (sessionDurationMillis / 1000.0) + " seconds.");
+
             if (clientRequest != null) {
                 try {
                     clientRequest.getSocket().close();
