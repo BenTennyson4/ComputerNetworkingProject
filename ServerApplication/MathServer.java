@@ -83,10 +83,11 @@ public class MathServer {
                         System.out.println("Client " + clientName + " disconnected.");
                         break;
                     }
-
+                    
                     System.out.println("Received from " + clientName + ": " + mathExpression);
                     String result = processCalculation(mathExpression);
                     responseMap.put(requestId, result);  // Store result in FCFS order
+                    System.out.println("Sending response to " + clientName + ": " + result);
                     outFromServer.writeBytes(result + "\n");  // Echo result
                 }
 
@@ -147,7 +148,6 @@ public class MathServer {
         while (true) {
             if (responseMap.containsKey(expectedRequestId)) {
                 String response = responseMap.remove(expectedRequestId);
-                System.out.println("Sending response for request " + expectedRequestId + ": " + response);
                 expectedRequestId++;  // Move to the next response in order
             }
         }
